@@ -2,26 +2,47 @@
 
 ## Summary
 
-Update the GitHub Actions workflow to use the Node.js Agent SDK script instead of CLI.
+Update the GitHub Actions workflow to use the Python Agent SDK script.
 
 ## Acceptance Criteria
 
-- [ ] Workflow installs `@anthropic-ai/claude-agent-sdk`
-- [ ] Workflow runs `.github/scripts/run-claude.mjs`
-- [ ] Environment variables passed correctly (ISSUE_TITLE, ISSUE_BODY, ANTHROPIC_API_KEY)
-- [ ] Remove old CLI-based step
+- [x] Workflow sets up Python 3.12
+- [x] Workflow installs uv and syncs dependencies
+- [x] Workflow caches `.venv` based on `uv.lock` hash
+- [x] Workflow runs tests before agent execution
+- [x] Workflow runs `.github/scripts/run_claude.py`
+- [x] Environment variables passed correctly (ISSUE_TITLE, ISSUE_BODY, ANTHROPIC_API_KEY)
+- [x] Uses PAT_TOKEN for checkout to allow workflow file modifications
 
-## Technical Notes
+## Implementation
 
 ```yaml
+- name: Setup Python
+  uses: actions/setup-python@v5
+  with:
+    python-version: '3.12'
+
+- name: Install uv
+  uses: astral-sh/setup-uv@v6
+
+- name: Cache uv
+  uses: actions/cache@v4
+  with:
+    path: .venv
+    key: ${{ runner.os }}-uv-${{ hashFiles('uv.lock') }}
+
+- name: Install dependencies
+  run: uv sync
+
+- name: Run tests
+  run: uv run pytest
+
 - name: Run Claude Code
   env:
     ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     ISSUE_TITLE: ${{ github.event.issue.title }}
     ISSUE_BODY: ${{ github.event.issue.body }}
-  run: |
-    npm install @anthropic-ai/claude-agent-sdk
-    node .github/scripts/run-claude.mjs
+  run: uv run python .github/scripts/run_claude.py
 ```
 
 ## Dependencies
