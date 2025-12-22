@@ -26,3 +26,14 @@ Extend the workflow to check out the repository and create a properly named bran
 ## Dependencies
 
 - 001-001 (workflow trigger)
+
+## Implementation Notes
+
+Extended `.github/workflows/agent-implement.yml` with:
+- Added `contents: write` permission to allow pushing branches
+- Added `actions/checkout@v4` step to check out the repository
+- Added "Create and push branch" step that:
+  - Generates slug from issue title: lowercase, remove special chars, take first 5 words, join with hyphens
+  - Creates branch named `agent/issue-{number}-{slug}`
+  - Configures git user as github-actions[bot]
+  - Pushes the branch to origin
