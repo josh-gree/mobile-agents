@@ -8,16 +8,22 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
 
 describe("buildPrompt", () => {
   it("includes system instructions and title/body", () => {
-    const result = buildPrompt("My Title", "Some body text");
+    const result = buildPrompt("My Title", "Some body text", "/test/dir");
     expect(result).toContain("# My Title");
     expect(result).toContain("Some body text");
     expect(result).toContain("You are a code editing agent");
     expect(result).toContain("MUST use the file editing tools");
   });
 
+  it("includes working directory in prompt", () => {
+    const result = buildPrompt("Title", "Body", "/my/working/dir");
+    expect(result).toContain("Working directory: /my/working/dir");
+    expect(result).toContain("/my/working/dir/hello.txt");
+  });
+
   it("handles multiline body", () => {
     const body = "Line 1\nLine 2\nLine 3";
-    const result = buildPrompt("Title", body);
+    const result = buildPrompt("Title", body, "/test");
     expect(result).toContain("# Title");
     expect(result).toContain("Line 1\nLine 2\nLine 3");
   });
