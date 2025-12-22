@@ -7,7 +7,7 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from claude_runner import build_prompt, get_options, run_claude, FILE_EDITING_TOOLS
+from claude_runner import build_prompt, build_pr_description_prompt, get_options, run_claude, FILE_EDITING_TOOLS
 
 
 # build_prompt tests
@@ -49,6 +49,21 @@ def test_build_prompt_raises_when_body_missing():
         build_prompt("title", None)
 
 
+# build_pr_description_prompt tests
+
+def test_build_pr_description_prompt_includes_issue_and_diff():
+    result = build_pr_description_prompt("Fix bug", "Fix the login bug", "+added line", "/test/dir")
+    assert "Fix bug" in result
+    assert "Fix the login bug" in result
+    assert "+added line" in result
+    assert ".pr-description.md" in result
+
+
+def test_build_pr_description_prompt_includes_working_directory():
+    result = build_pr_description_prompt("Title", "Body", "diff", "/my/dir")
+    assert "/my/dir/.pr-description.md" in result
+
+
 # get_options tests
 
 def test_get_options_returns_file_editing_tools():
@@ -64,6 +79,11 @@ def test_get_options_sets_bypass_permissions_mode():
 def test_get_options_sets_max_turns():
     options = get_options()
     assert options.max_turns == 10
+
+
+def test_get_options_accepts_custom_max_turns():
+    options = get_options(max_turns=5)
+    assert options.max_turns == 5
 
 
 # run_claude tests
