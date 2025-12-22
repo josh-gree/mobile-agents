@@ -28,3 +28,13 @@ Create the basic GitHub Actions workflow file that triggers on the `ai:implement
 ## Dependencies
 
 None
+
+## Implementation Notes
+
+Created `.github/workflows/agent-implement.yml` with:
+- Trigger on `issues.labeled` event
+- Condition `if: github.event.label.name == 'ai:implement'` to filter events
+- `permissions: issues: write` to grant GITHUB_TOKEN label access
+- Single step using `actions/github-script@v7` to remove `ai:implement` and add `ai:in-progress`
+
+Also created the `ai:implement` and `ai:in-progress` labels in the repo during testing.
