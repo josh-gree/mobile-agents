@@ -10,7 +10,9 @@ permissions:
 
 jobs:
   implement:
-    if: github.event.label.name == 'ai:implement'
+    if: >-
+      github.event.label.name == 'ai:implement' &&
+      contains(fromJSON('["OWNER", "COLLABORATOR", "MEMBER"]'), github.event.issue.author_association)
     runs-on: ubuntu-latest
 
     steps:
