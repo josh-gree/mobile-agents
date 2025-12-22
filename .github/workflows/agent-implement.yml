@@ -1,0 +1,34 @@
+name: Agent Implement
+
+on:
+  issues:
+    types: [labeled]
+
+jobs:
+  implement:
+    if: github.event.label.name == 'ai:implement'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Swap labels
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const issue = context.payload.issue;
+
+            // Remove ai:implement label
+            await github.rest.issues.removeLabel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              name: 'ai:implement'
+            });
+
+            // Add ai:in-progress label
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              labels: ['ai:in-progress']
+            });
