@@ -53,3 +53,20 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -b "$BRANCH_NAME"
           git push origin "$BRANCH_NAME"
+
+      - name: Run Claude Code
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          # Install Claude Code CLI
+          npm install -g @anthropic-ai/claude-code
+
+          # Combine issue title and body into prompt
+          PROMPT="# ${ISSUE_TITLE}
+
+          ${ISSUE_BODY}"
+
+          # Run Claude Code in non-interactive mode with permissions bypassed for CI
+          claude --print --dangerously-skip-permissions "$PROMPT"

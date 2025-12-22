@@ -25,3 +25,13 @@ Extend the workflow to run Claude Code CLI with the issue content as the prompt.
 ## Dependencies
 
 - 001-002 (branch creation)
+
+## Implementation Notes
+
+Extended `.github/workflows/agent-implement.yml` with:
+- Added `ANTHROPIC_API_KEY` secret from repository secrets
+- Added step to install Claude Code CLI via npm (`@anthropic-ai/claude-code`)
+- Combines issue title and body into a prompt (title as heading, body as content)
+- Runs Claude Code with `--print --dangerously-skip-permissions` flags:
+  - `--print`: Non-interactive mode for CI environments
+  - `--dangerously-skip-permissions`: Bypasses permission checks (appropriate for isolated CI runner)
