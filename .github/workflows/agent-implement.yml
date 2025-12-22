@@ -56,19 +56,33 @@ jobs:
           git checkout -b "$BRANCH_NAME"
           git push origin "$BRANCH_NAME"
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+
+      - name: Install dependencies
+        run: npm install
+
       - name: Run Claude Code
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
           ISSUE_BODY: ${{ github.event.issue.body }}
+        run: npm run claude
+
+      - name: Check for changes
+        id: changes
         run: |
-          # Install Claude Code CLI
-          npm install -g @anthropic-ai/claude-code
+          if git diff --quiet; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "::warning::Agent made no changes to the codebase"
+          else
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "Changes made by agent:"
+            git diff --stat
+          fi
 
-          # Combine issue title and body into prompt
-          PROMPT="# ${ISSUE_TITLE}
-
-          ${ISSUE_BODY}"
-
-          # Run Claude Code in non-interactive mode with permissions bypassed for CI
-          claude --print --dangerously-skip-permissions "$PROMPT"
+      - name: Show diff
+        if: steps.changes.outputs.has_changes == 'true'
+        run: git diff
