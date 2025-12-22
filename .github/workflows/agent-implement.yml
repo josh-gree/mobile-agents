@@ -98,7 +98,7 @@ jobs:
           ISSUE_TITLE: ${{ github.event.issue.title }}
         run: |
           git commit -m "feat: $ISSUE_TITLE" -m "Closes #$ISSUE_NUMBER"
-          git push
+          git push origin HEAD
 
       - name: Create pull request
         if: steps.changes.outputs.has_changes == 'true'
