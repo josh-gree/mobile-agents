@@ -6,6 +6,7 @@ on:
 
 permissions:
   issues: write
+  contents: write
 
 jobs:
   implement:
@@ -35,3 +36,20 @@ jobs:
               issue_number: issue.number,
               labels: ['ai:in-progress']
             });
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create and push branch
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+        run: |
+          # Generate slug: lowercase, remove special chars, take first 5 words, join with hyphens
+          SLUG=$(echo "$ISSUE_TITLE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9 ]//g' | awk '{for(i=1;i<=5&&i<=NF;i++) printf "%s%s", $i, (i<5&&i<NF?"-":"")}')
+          BRANCH_NAME="agent/issue-${ISSUE_NUMBER}-${SLUG}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH_NAME"
+          git push origin "$BRANCH_NAME"
