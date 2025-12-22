@@ -70,5 +70,5 @@ jobs:
 
           ${ISSUE_BODY}"
 
-          # Run Claude Code in non-interactive mode with permissions bypassed for CI
-          claude --print --dangerously-skip-permissions "$PROMPT"
+          # Run Claude Code in agentic loop with max turns limit
+          claude --print --dangerously-skip-permissions --max-turns 10 "$PROMPT"
