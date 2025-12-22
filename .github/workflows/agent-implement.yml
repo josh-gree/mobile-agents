@@ -1,0 +1,66 @@
+name: Agent Implement
+
+on:
+  issues:
+    types: [labeled]
+
+jobs:
+  implement:
+    if: github.event.label.name == 'ai:implement'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Swap labels
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const issueNumber = context.issue.number;
+
+            // Remove ai:implement label
+            await github.rest.issues.removeLabel({
+              owner,
+              repo,
+              issue_number: issueNumber,
+              name: 'ai:implement'
+            });
+
+            // Add ai:in-progress label
+            await github.rest.issues.addLabels({
+              owner,
+              repo,
+              issue_number: issueNumber,
+              labels: ['ai:in-progress']
+            });
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create branch from issue
+        id: create-branch
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issueNumber = context.issue.number;
+            const issueTitle = context.payload.issue.title;
+
+            // Generate slug: lowercase, remove special chars, take first 5 words, join with hyphens
+            const slug = issueTitle
+              .toLowerCase()
+              .replace(/[^a-z0-9\s]/g, '')
+              .trim()
+              .split(/\s+/)
+              .slice(0, 5)
+              .join('-');
+
+            const branchName = `agent/issue-${issueNumber}-${slug}`;
+
+            core.setOutput('branch_name', branchName);
+            console.log(`Branch name: ${branchName}`);
+
+      - name: Create and push branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "${{ steps.create-branch.outputs.branch_name }}"
+          git push origin "${{ steps.create-branch.outputs.branch_name }}"
