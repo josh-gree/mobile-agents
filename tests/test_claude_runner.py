@@ -52,15 +52,16 @@ def test_build_prompt_raises_when_body_missing():
 # build_pr_description_prompt tests
 
 def test_build_pr_description_prompt_includes_issue_and_diff():
-    result = build_pr_description_prompt("Fix bug", "Fix the login bug", "+added line", "/test/dir")
+    result = build_pr_description_prompt("Fix bug", "Fix the login bug", "+added line", 123, "/test/dir")
     assert "Fix bug" in result
     assert "Fix the login bug" in result
     assert "+added line" in result
     assert ".pr-description.md" in result
+    assert "Closes #123" in result
 
 
 def test_build_pr_description_prompt_includes_working_directory():
-    result = build_pr_description_prompt("Title", "Body", "diff", "/my/dir")
+    result = build_pr_description_prompt("Title", "Body", "diff", 456, "/my/dir")
     assert "/my/dir/.pr-description.md" in result
 
 
