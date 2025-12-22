@@ -36,18 +36,51 @@ Do NOT just describe what changes should be made - actually make them using the 
     return f"{system_instructions}\n\n# {title}\n\n{body}"
 
 
-def get_options(cwd: str | None = None) -> ClaudeAgentOptions:
+def build_pr_description_prompt(title: str, body: str, diff: str, cwd: str | None = None) -> str:
+    """Build prompt for generating PR description."""
+    if cwd is None:
+        cwd = os.getcwd()
+
+    return f"""You are writing a pull request description. Based on the issue and the git diff of changes made, write a clear PR description.
+
+Working directory: {cwd}
+
+Write the PR description to: {cwd}/.pr-description.md
+
+The description should:
+1. Have a "## Summary" section with 2-3 bullet points describing what was done
+2. Reference the original issue requirements
+3. Be concise and factual
+
+Do NOT include a test plan section.
+
+## Original Issue
+
+### {title}
+
+{body}
+
+## Changes Made (git diff)
+
+```diff
+{diff}
+```
+
+Now write the PR description to {cwd}/.pr-description.md using the Write tool."""
+
+
+def get_options(cwd: str | None = None, max_turns: int = 10) -> ClaudeAgentOptions:
     """Get Claude agent options with file editing tools."""
     return ClaudeAgentOptions(
         allowed_tools=FILE_EDITING_TOOLS,
         permission_mode="bypassPermissions",
-        max_turns=10,
+        max_turns=max_turns,
         cwd=Path(cwd) if cwd else None,
     )
 
 
-async def run_claude(prompt: str, cwd: str | None = None):
+async def run_claude(prompt: str, cwd: str | None = None, max_turns: int = 10):
     """Run Claude with the given prompt. Returns an async iterator of messages."""
-    options = get_options(cwd)
+    options = get_options(cwd, max_turns)
     async for message in query(prompt=prompt, options=options):
         yield message
