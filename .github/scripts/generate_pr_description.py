@@ -14,6 +14,7 @@ from claude_runner import build_pr_description_prompt, run_claude
 async def main():
     issue_title = os.environ.get("ISSUE_TITLE")
     issue_body = os.environ.get("ISSUE_BODY")
+    issue_number = os.environ.get("ISSUE_NUMBER")
     diff = os.environ.get("GIT_DIFF", "")
     api_key = os.environ.get("ANTHROPIC_API_KEY")
 
@@ -21,13 +22,13 @@ async def main():
         print("Error: ANTHROPIC_API_KEY environment variable is required", file=sys.stderr)
         sys.exit(1)
 
-    if not issue_title or not issue_body:
-        print("Error: ISSUE_TITLE and ISSUE_BODY environment variables are required", file=sys.stderr)
+    if not issue_title or not issue_body or not issue_number:
+        print("Error: ISSUE_TITLE, ISSUE_BODY and ISSUE_NUMBER environment variables are required", file=sys.stderr)
         sys.exit(1)
 
     try:
         cwd = os.getcwd()
-        prompt = build_pr_description_prompt(issue_title, issue_body, diff, cwd)
+        prompt = build_pr_description_prompt(issue_title, issue_body, diff, int(issue_number), cwd)
 
         # Use fewer turns for this simpler task
         async for message in run_claude(prompt, cwd, max_turns=3):

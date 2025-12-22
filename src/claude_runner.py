@@ -36,7 +36,7 @@ Do NOT just describe what changes should be made - actually make them using the 
     return f"{system_instructions}\n\n# {title}\n\n{body}"
 
 
-def build_pr_description_prompt(title: str, body: str, diff: str, cwd: str | None = None) -> str:
+def build_pr_description_prompt(title: str, body: str, diff: str, issue_number: int, cwd: str | None = None) -> str:
     """Build prompt for generating PR description."""
     if cwd is None:
         cwd = os.getcwd()
@@ -48,8 +48,8 @@ Working directory: {cwd}
 Write the PR description to: {cwd}/.pr-description.md
 
 The description should:
-1. Have a "## Summary" section with 2-3 bullet points describing what was done
-2. Reference the original issue requirements
+1. Start with "Closes #{issue_number}" on its own line
+2. Have a "## Summary" section with 2-3 bullet points describing what was done
 3. Be concise and factual
 
 Do NOT include a test plan section.
