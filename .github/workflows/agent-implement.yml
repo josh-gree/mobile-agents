@@ -74,15 +74,18 @@ jobs:
       - name: Check for changes
         id: changes
         run: |
-          if git diff --quiet; then
+          # Check for any changes (tracked or untracked)
+          if [ -z "$(git status --porcelain)" ]; then
             echo "has_changes=false" >> $GITHUB_OUTPUT
             echo "::warning::Agent made no changes to the codebase"
           else
             echo "has_changes=true" >> $GITHUB_OUTPUT
             echo "Changes made by agent:"
-            git diff --stat
+            git status --short
           fi
 
       - name: Show diff
         if: steps.changes.outputs.has_changes == 'true'
-        run: git diff
+        run: |
+          git add -A
+          git diff --cached
