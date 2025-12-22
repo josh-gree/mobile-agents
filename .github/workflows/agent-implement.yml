@@ -12,7 +12,7 @@ jobs:
   implement:
     if: >-
       github.event.label.name == 'ai:implement' &&
-      contains(fromJSON('["OWNER", "COLLABORATOR", "MEMBER"]'), github.event.issue.author_association)
+      github.event.issue.author_association == 'OWNER'
     runs-on: ubuntu-latest
 
     steps:

@@ -25,12 +25,7 @@ The workflow requires an Anthropic API key to run Claude Code.
 
 ## Security
 
-The workflow only runs for issues created by:
-- Repository owners (`OWNER`)
-- Collaborators (`COLLABORATOR`)
-- Organisation members (`MEMBER`)
-
-Issues from external contributors will not trigger the workflow.
+The workflow only runs for issues created by the repository owner. Issues from anyone else will not trigger the workflow.
 
 ## Labels
 
