@@ -18,9 +18,11 @@ from claude_runner import (
     run_claude_chunked,
     is_complete,
     cleanup_completion_marker,
+    extract_session_id,
     FILE_EDITING_TOOLS,
     COMPLETION_MARKER,
 )
+from claude_agent_sdk.types import SystemMessage
 
 
 # build_prompt tests
@@ -98,6 +100,27 @@ def test_get_options_sets_max_turns():
 def test_get_options_accepts_custom_max_turns():
     options = get_options(max_turns=5)
     assert options.max_turns == 5
+
+
+def test_get_options_accepts_resume():
+    options = get_options(resume="session-123")
+    assert options.resume == "session-123"
+
+
+# extract_session_id tests
+
+def test_extract_session_id_from_init_message():
+    msg = SystemMessage(subtype="init", data={"session_id": "abc-123", "type": "system"})
+    assert extract_session_id(msg) == "abc-123"
+
+
+def test_extract_session_id_returns_none_for_non_init():
+    msg = SystemMessage(subtype="other", data={"session_id": "abc-123"})
+    assert extract_session_id(msg) is None
+
+
+def test_extract_session_id_returns_none_for_non_system_message():
+    assert extract_session_id({"type": "message"}) is None
 
 
 # run_claude tests
@@ -240,6 +263,32 @@ async def test_run_claude_chunked_continues_without_completion():
             # Should run all 3 chunks since no completion marker
             assert chunk_count == 3
             assert len(messages) == 3
+
+
+async def test_run_claude_chunked_resumes_session():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        call_count = 0
+        captured_options = []
+
+        async def mock_query(prompt, options):
+            nonlocal call_count
+            call_count += 1
+            # Capture the options for each call
+            captured_options.append(options)
+            # First chunk returns init message with session_id
+            if call_count == 1:
+                yield SystemMessage(subtype="init", data={"session_id": "test-session-123"})
+            yield {"type": "message", "content": "work"}
+
+        with patch("claude_runner.query", mock_query):
+            messages = []
+            async for msg in run_claude_chunked("Title", "Body", tmpdir, max_chunks=3):
+                messages.append(msg)
+
+            # First chunk should have no resume, subsequent chunks should use session_id
+            assert captured_options[0].resume is None
+            assert captured_options[1].resume == "test-session-123"
+            assert captured_options[2].resume == "test-session-123"
 
 
 async def test_run_claude_chunked_cleans_up_marker():

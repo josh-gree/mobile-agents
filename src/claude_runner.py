@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 
 from claude_agent_sdk import query, ClaudeAgentOptions
+from claude_agent_sdk.types import SystemMessage
 
 
 FILE_EDITING_TOOLS = ["Read", "Edit", "Write", "Glob", "Grep"]
@@ -102,19 +103,20 @@ Do NOT include a test plan section.
 Now write the PR description to {cwd}/.pr-description.md using the Write tool."""
 
 
-def get_options(cwd: str | None = None, max_turns: int = 10) -> ClaudeAgentOptions:
+def get_options(cwd: str | None = None, max_turns: int = 10, resume: str | None = None) -> ClaudeAgentOptions:
     """Get Claude agent options with file editing tools."""
     return ClaudeAgentOptions(
         allowed_tools=FILE_EDITING_TOOLS,
         permission_mode="bypassPermissions",
         max_turns=max_turns,
         cwd=Path(cwd) if cwd else None,
+        resume=resume,
     )
 
 
-async def run_claude(prompt: str, cwd: str | None = None, max_turns: int = 10):
+async def run_claude(prompt: str, cwd: str | None = None, max_turns: int = 10, resume: str | None = None):
     """Run Claude with the given prompt. Returns an async iterator of messages."""
-    options = get_options(cwd, max_turns)
+    options = get_options(cwd, max_turns, resume)
     async for message in query(prompt=prompt, options=options):
         yield message
 
@@ -132,6 +134,13 @@ def cleanup_completion_marker(cwd: str) -> None:
         marker_path.unlink()
 
 
+def extract_session_id(message) -> str | None:
+    """Extract session_id from a SystemMessage init message."""
+    if isinstance(message, SystemMessage) and message.subtype == "init":
+        return message.data.get("session_id")
+    return None
+
+
 async def run_claude_chunked(
     title: str,
     body: str,
@@ -140,6 +149,9 @@ async def run_claude_chunked(
     max_chunks: int = DEFAULT_MAX_CHUNKS,
 ):
     """Run Claude in chunks, allowing more turns for complex tasks.
+
+    Uses session resume to continue the conversation across chunks,
+    preserving context from previous turns.
 
     Yields messages from each chunk. Stops when:
     - The completion marker file is created (agent signals done)
@@ -151,6 +163,8 @@ async def run_claude_chunked(
     # Clean up any leftover completion marker from previous runs
     cleanup_completion_marker(cwd)
 
+    session_id = None
+
     for chunk_num in range(max_chunks):
         # Build prompt - initial or continuation
         if chunk_num == 0:
@@ -158,8 +172,11 @@ async def run_claude_chunked(
         else:
             prompt = build_continuation_prompt(title, body, cwd)
 
-        # Run this chunk
-        async for message in run_claude(prompt, cwd, turns_per_chunk):
+        # Run this chunk, resuming session if we have one
+        async for message in run_claude(prompt, cwd, turns_per_chunk, resume=session_id):
+            # Capture session_id from init message
+            if session_id is None:
+                session_id = extract_session_id(message)
             yield message
 
         # Check if agent signalled completion
