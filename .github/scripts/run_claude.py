@@ -21,9 +21,13 @@ async def main():
         print("Error: ANTHROPIC_API_KEY environment variable is required", file=sys.stderr)
         sys.exit(1)
 
-    if not issue_title or not issue_body:
-        print("Error: ISSUE_TITLE and ISSUE_BODY environment variables are required", file=sys.stderr)
+    if not issue_title:
+        print("Error: ISSUE_TITLE environment variable is required", file=sys.stderr)
         sys.exit(1)
+
+    # Allow empty body if title is provided
+    if issue_body is None:
+        issue_body = ""
 
     try:
         cwd = os.getcwd()
