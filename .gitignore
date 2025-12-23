@@ -1,6 +1,7 @@
 tmp/
 .DS_Store
 .pr-description.md
+.claude-complete
 
 # Python
 .venv/
