@@ -4,15 +4,27 @@ A GitHub Actions workflow that uses Claude Code to automatically implement issue
 
 ## How It Works
 
-1. Add the `ai:implement` label to an issue
-2. The workflow automatically:
-   - Swaps labels (`ai:implement` → `ai:in-progress`)
-   - Creates a branch: `agent/issue-{number}-{slug}`
-   - Runs tests to ensure the codebase is healthy
-   - Runs Claude Code with the issue content as the prompt
-   - Claude Code makes changes using file editing tools
-   - Commits changes and creates a PR
-   - Updates labels (`ai:in-progress` → `ai:completed` or `ai:failed`)
+You can trigger the workflow in two ways:
+
+### Option 1: Add a label
+Add the `ai:implement` label to an issue
+
+### Option 2: Use a trigger in the title
+Include `[ai:implement]` or `@ai-implement` anywhere in the issue title. The workflow will automatically add the label for you.
+
+**Example titles:**
+- `[ai:implement] Add user authentication`
+- `Fix login bug @ai-implement`
+- `@ai-implement Implement dark mode feature`
+
+Once triggered, the workflow automatically:
+1. Swaps labels (`ai:implement` → `ai:in-progress`)
+2. Creates a branch: `agent/issue-{number}-{slug}`
+3. Runs tests to ensure the codebase is healthy
+4. Runs Claude Code with the issue content as the prompt
+5. Claude Code makes changes using file editing tools
+6. Commits changes and creates a PR
+7. Updates labels (`ai:in-progress` → `ai:completed` or `ai:failed`)
 
 ## Stack
 
