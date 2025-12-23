@@ -1,0 +1,100 @@
+name: Art Library CI
+
+on:
+  pull_request:
+    paths:
+      - "art/**"
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - "art/**"
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  lint:
+    name: Lint (Ruff)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: art
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Cache uv dependencies
+        uses: actions/cache@v4
+        with:
+          path: art/.venv
+          key: uv-${{ runner.os }}-py3.12-${{ hashFiles('art/uv.lock') }}
+          restore-keys: |
+            uv-${{ runner.os }}-py3.12-
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run ruff check
+        run: uv run ruff check .
+
+      - name: Run ruff format check
+        run: uv run ruff format --check .
+
+  test:
+    name: Test (pytest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: art
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Cache uv dependencies
+        uses: actions/cache@v4
+        with:
+          path: art/.venv
+          key: uv-${{ runner.os }}-py3.12-${{ hashFiles('art/uv.lock') }}
+          restore-keys: |
+            uv-${{ runner.os }}-py3.12-
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run pytest
+        run: uv run pytest -v
+
+      - name: Test Summary
+        if: always()
+        run: |
+          if [ $? -eq 0 ]; then
+            echo "✅ All tests passed!"
+          else
+            echo "❌ Tests failed!"
+            exit 1
+          fi
