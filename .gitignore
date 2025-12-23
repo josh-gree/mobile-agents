@@ -1,6 +1,8 @@
 tmp/
 .DS_Store
 .pr-description.md
+.plan-context.md
+.plan.md
 .claude-complete
 
 # Python

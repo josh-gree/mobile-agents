@@ -19,7 +19,7 @@ Generate an implementation plan before executing changes:
 - `[ai:plan] Add user authentication`
 - `Fix login bug @ai-plan`
 - `@ai-plan Implement dark mode feature`
-- `ai:plan Add new feature`
+- `ai:plan: Add new feature` (must start with `ai:plan`)
 
 **Plan workflow:**
 1. Swaps labels (`ai:plan` → `ai:planning` → `ai:planned`)
@@ -36,7 +36,7 @@ Add the `ai:implement` label to an issue (or include `[ai:implement]` or `@ai-im
 - `[ai:implement] Add user authentication`
 - `Fix login bug @ai-implement`
 - `@ai-implement Implement dark mode feature`
-- `ai:implement Add new feature`
+- `ai:implement: Add new feature` (must start with `ai:implement`)
 
 **Implementation workflow:**
 1. Swaps labels (`ai:implement` → `ai:in-progress`)
