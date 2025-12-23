@@ -23,6 +23,9 @@ from claude_runner import (
     is_plan_complete,
     cleanup_completion_marker,
     extract_session_id,
+    extract_turn_summary,
+    build_chunk_summary_prompt,
+    build_final_summary_prompt,
     FILE_EDITING_TOOLS,
     COMPLETION_MARKER,
     PLAN_FILE,
@@ -437,3 +440,90 @@ async def test_run_claude_plan_chunked_resumes_session():
             assert captured_options[0].resume is None
             assert captured_options[1].resume == "plan-session-456"
             assert captured_options[2].resume == "plan-session-456"
+
+
+# Summary generation tests
+
+def test_extract_turn_summary_with_empty_messages():
+    messages = []
+    result = extract_turn_summary(messages)
+    assert result == "No significant activity recorded"
+
+
+def test_build_chunk_summary_prompt_includes_title():
+    messages = []
+    prompt = build_chunk_summary_prompt("Test Title", "Test Body", messages, 0, "/tmp")
+    assert "Test Title" in prompt
+    assert "Chunk 1" in prompt
+
+
+def test_build_chunk_summary_prompt_includes_body():
+    messages = []
+    prompt = build_chunk_summary_prompt("Test Title", "Test Body", messages, 0, "/tmp")
+    assert "Test Body" in prompt
+
+
+def test_build_chunk_summary_prompt_handles_empty_body():
+    messages = []
+    prompt = build_chunk_summary_prompt("Test Title", "", messages, 0, "/tmp")
+    assert "Test Title" in prompt
+    assert "(No additional description)" in prompt
+
+
+def test_build_final_summary_prompt_includes_title():
+    summaries = ["Summary 1", "Summary 2"]
+    prompt = build_final_summary_prompt("Test Title", "Test Body", summaries, "/tmp")
+    assert "Test Title" in prompt
+
+
+def test_build_final_summary_prompt_includes_all_summaries():
+    summaries = ["Summary 1", "Summary 2"]
+    prompt = build_final_summary_prompt("Test Title", "Test Body", summaries, "/tmp")
+    assert "Summary 1" in prompt
+    assert "Summary 2" in prompt
+    assert "Chunk 1" in prompt
+    assert "Chunk 2" in prompt
+
+
+async def test_run_claude_chunked_with_callbacks():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        callback_calls = []
+        final_calls = []
+
+        async def mock_callback(chunk_num: int, summary: str):
+            callback_calls.append((chunk_num, summary))
+
+        async def mock_final(summaries: list[str]):
+            final_calls.append(summaries)
+
+        async def mock_query(*args, **kwargs):
+            yield {"type": "message", "content": "work"}
+
+        async def mock_summary_agent(*args, **kwargs):
+            return "Test summary"
+
+        # Create completion marker after first chunk
+        with patch("claude_runner.query", mock_query):
+            with patch("claude_runner.run_summary_agent", mock_summary_agent):
+                messages = []
+                async for msg in run_claude_chunked(
+                    "Title",
+                    "Body",
+                    tmpdir,
+                    turns_per_chunk=1,
+                    max_chunks=2,
+                    on_chunk_complete=mock_callback,
+                    on_final_complete=mock_final,
+                ):
+                    messages.append(msg)
+                    # Create completion marker after first message
+                    if len(messages) == 1:
+                        (Path(tmpdir) / COMPLETION_MARKER).write_text("DONE")
+
+                # Should have called chunk callback once
+                assert len(callback_calls) == 1
+                assert callback_calls[0][0] == 0
+                assert callback_calls[0][1] == "Test summary"
+
+                # Should have called final callback
+                assert len(final_calls) == 1
