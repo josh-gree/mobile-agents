@@ -49,19 +49,23 @@ def test_build_prompt_handles_multiline_body():
 
 
 def test_build_prompt_raises_when_title_missing():
-    with pytest.raises(ValueError, match="Title and body are required"):
+    with pytest.raises(ValueError, match="Title is required"):
         build_prompt("", "body")
 
-    with pytest.raises(ValueError, match="Title and body are required"):
+    with pytest.raises(ValueError, match="Title is required"):
         build_prompt(None, "body")
 
 
-def test_build_prompt_raises_when_body_missing():
-    with pytest.raises(ValueError, match="Title and body are required"):
-        build_prompt("title", "")
+def test_build_prompt_allows_empty_body():
+    # Empty body should be allowed now
+    result = build_prompt("title", "")
+    assert "# title" in result
+    assert "You are a code editing agent" in result
 
-    with pytest.raises(ValueError, match="Title and body are required"):
-        build_prompt("title", None)
+    # None body should be converted to empty string
+    result = build_prompt("title", None)
+    assert "# title" in result
+    assert "You are a code editing agent" in result
 
 
 # build_pr_description_prompt tests
@@ -78,6 +82,19 @@ def test_build_pr_description_prompt_includes_issue_and_diff():
 def test_build_pr_description_prompt_includes_working_directory():
     result = build_pr_description_prompt("Title", "Body", "diff", 456, "/my/dir")
     assert "/my/dir/.pr-description.md" in result
+
+
+def test_build_pr_description_prompt_handles_empty_body():
+    # Empty body should show "(No additional details provided)"
+    result = build_pr_description_prompt("Fix bug", "", "+added line", 123, "/test/dir")
+    assert "Fix bug" in result
+    assert "(No additional details provided)" in result
+    assert "+added line" in result
+
+    # None body should also be handled
+    result = build_pr_description_prompt("Fix bug", None, "+added line", 123, "/test/dir")
+    assert "Fix bug" in result
+    assert "(No additional details provided)" in result
 
 
 # get_options tests

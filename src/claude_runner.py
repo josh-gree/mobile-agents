@@ -15,11 +15,15 @@ DEFAULT_MAX_CHUNKS = 5
 
 def build_prompt(title: str, body: str, cwd: str | None = None) -> str:
     """Build the prompt for Claude with system instructions."""
-    if not title or not body:
-        raise ValueError("Title and body are required")
+    if not title:
+        raise ValueError("Title is required")
 
     if cwd is None:
         cwd = os.getcwd()
+
+    # Allow empty body
+    if body is None:
+        body = ""
 
     completion_marker_path = f"{cwd}/{COMPLETION_MARKER}"
 
@@ -75,6 +79,24 @@ def build_pr_description_prompt(title: str, body: str, diff: str, issue_number: 
     if cwd is None:
         cwd = os.getcwd()
 
+    # Allow empty body
+    if body is None:
+        body = ""
+
+    # Build issue section based on whether body exists
+    if body.strip():
+        issue_section = f"""## Original Issue
+
+### {title}
+
+{body}"""
+    else:
+        issue_section = f"""## Original Issue
+
+### {title}
+
+(No additional details provided)"""
+
     return f"""You are writing a pull request description. Based on the issue and the git diff of changes made, write a clear PR description.
 
 Working directory: {cwd}
@@ -88,11 +110,7 @@ The description should:
 
 Do NOT include a test plan section.
 
-## Original Issue
-
-### {title}
-
-{body}
+{issue_section}
 
 ## Changes Made (git diff)
 
