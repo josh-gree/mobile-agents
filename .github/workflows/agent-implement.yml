@@ -100,11 +100,44 @@ jobs:
       - name: Run tests
         run: uv run pytest
 
+      - name: Fetch plan from comments
+        id: fetch-plan
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const issue = context.payload.issue;
+
+            // Fetch all comments on the issue
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number
+            });
+
+            // Look for a comment containing an implementation plan
+            for (const comment of comments.data) {
+              if (comment.body.includes('## 🤖 Implementation Plan')) {
+                // Extract the plan content (everything between the header and "Next steps")
+                const planMatch = comment.body.match(/## 🤖 Implementation Plan\n\n([\s\S]*?)(?:\n\n---|\n\n\*\*Next steps)/);
+                if (planMatch) {
+                  const plan = planMatch[1].trim();
+                  // Write plan to a file for the agent to use
+                  const fs = require('fs');
+                  fs.writeFileSync('.plan-context.md', plan);
+                  return 'found';
+                }
+              }
+            }
+            return 'not-found';
+          result-encoding: string
+
       - name: Run Claude Code
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
           ISSUE_BODY: ${{ github.event.issue.body }}
+          HAS_PLAN: ${{ steps.fetch-plan.outputs.result }}
         run: uv run python .github/scripts/run_claude.py
 
       - name: Check for changes

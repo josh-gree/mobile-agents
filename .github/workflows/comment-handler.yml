@@ -1,0 +1,161 @@
+name: Comment Handler
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  issues: write
+  contents: write
+  pull-requests: write
+
+jobs:
+  handle-apply:
+    if: >-
+      github.event.issue.pull_request == null &&
+      github.event.comment.user.login == github.event.issue.user.login &&
+      github.event.issue.author_association == 'OWNER' &&
+      github.event.comment.body == '/apply'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check if issue has ai:planned label
+        uses: actions/github-script@v7
+        id: check-label
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const issue = context.payload.issue;
+            const hasPlannedLabel = issue.labels.some(label => label.name === 'ai:planned');
+
+            if (!hasPlannedLabel) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: '⚠️ This issue does not have a plan yet. Please add the `ai:plan` label first to generate a plan.'
+              });
+              return 'no-plan';
+            }
+            return 'has-plan';
+          result-encoding: string
+
+      - name: React to comment
+        if: steps.check-label.outputs.result == 'has-plan'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.reactions.createForIssueComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: context.payload.comment.id,
+              content: 'rocket'
+            });
+
+      - name: Trigger implementation
+        if: steps.check-label.outputs.result == 'has-plan'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const issue = context.payload.issue;
+
+            // Remove ai:planned label
+            await github.rest.issues.removeLabel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              name: 'ai:planned'
+            }).catch(() => {});
+
+            // Add ai:implement label to trigger the implement workflow
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              labels: ['ai:implement']
+            });
+
+  handle-close:
+    if: >-
+      github.event.issue.pull_request == null &&
+      github.event.comment.user.login == github.event.issue.user.login &&
+      github.event.issue.author_association == 'OWNER' &&
+      github.event.comment.body == '/close'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: React to comment
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.reactions.createForIssueComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: context.payload.comment.id,
+              content: 'thumbs_up'
+            });
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT_TOKEN }}
+          fetch-depth: 0
+
+      - name: Delete branch if exists
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          # Look for branches matching agent/issue-{number}-*
+          BRANCHES=$(git branch -r | grep "origin/agent/issue-${ISSUE_NUMBER}-" || true)
+
+          if [ -n "$BRANCHES" ]; then
+            echo "Found branches to delete:"
+            echo "$BRANCHES"
+
+            for BRANCH in $BRANCHES; do
+              # Remove 'origin/' prefix
+              BRANCH_NAME=${BRANCH#origin/}
+              echo "Deleting branch: $BRANCH_NAME"
+              git push origin --delete "$BRANCH_NAME" || echo "Failed to delete $BRANCH_NAME"
+            done
+          else
+            echo "No branches found for issue #${ISSUE_NUMBER}"
+          fi
+
+      - name: Close issue and clean up labels
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const issue = context.payload.issue;
+
+            // Remove AI-related labels
+            const aiLabels = ['ai:plan', 'ai:planning', 'ai:planned', 'ai:implement', 'ai:in-progress', 'ai:failed', 'ai:plan-failed'];
+            for (const label of aiLabels) {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                name: label
+              }).catch(() => {});
+            }
+
+            // Close the issue
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              state: 'closed'
+            });
+
+            // Add a closing comment
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              body: '✅ Issue closed and branches cleaned up.'
+            });

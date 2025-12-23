@@ -4,27 +4,49 @@ A GitHub Actions workflow that uses Claude Code to automatically implement issue
 
 ## How It Works
 
-You can trigger the workflow in two ways:
+You can trigger the workflow in three ways:
 
-### Option 1: Add a label
-Add the `ai:implement` label to an issue
+### Option 1: Plan First (Recommended)
+Generate an implementation plan before executing changes:
 
-### Option 2: Use a trigger in the title
-Include `[ai:implement]` or `@ai-implement` anywhere in the issue title. The workflow will automatically add the label for you.
+1. Add the `ai:plan` label to an issue (or include `[ai:plan]` or `@ai-plan` in the title)
+2. The agent will analyze the codebase and post an implementation plan as a comment
+3. Review the plan and either:
+   - Comment `/apply` to start implementation based on the plan
+   - Comment `/close` to close the issue and clean up branches
+
+**Example titles:**
+- `[ai:plan] Add user authentication`
+- `Fix login bug @ai-plan`
+- `@ai-plan Implement dark mode feature`
+
+**Plan workflow:**
+1. Swaps labels (`ai:plan` → `ai:planning` → `ai:planned`)
+2. Agent explores codebase and generates implementation plan
+3. Posts plan as issue comment
+4. Wait for `/apply` or `/close` command
+
+### Option 2: Direct Implementation
+Skip planning and implement directly:
+
+Add the `ai:implement` label to an issue (or include `[ai:implement]` or `@ai-implement` in the title)
 
 **Example titles:**
 - `[ai:implement] Add user authentication`
 - `Fix login bug @ai-implement`
 - `@ai-implement Implement dark mode feature`
 
-Once triggered, the workflow automatically:
+**Implementation workflow:**
 1. Swaps labels (`ai:implement` → `ai:in-progress`)
 2. Creates a branch: `agent/issue-{number}-{slug}`
 3. Runs tests to ensure the codebase is healthy
-4. Runs Claude Code with the issue content as the prompt
+4. Runs Claude Code with the issue content (and plan if available) as the prompt
 5. Claude Code makes changes using file editing tools
 6. Commits changes and creates a PR
 7. Updates labels (`ai:in-progress` → `ai:completed` or `ai:failed`)
+
+### Option 3: Plan + Apply Together
+Create an `ai:plan` label first, then after reviewing the plan comment, add the `ai:implement` label to execute the plan
 
 ## Stack
 
@@ -66,16 +88,29 @@ A fine-grained Personal Access Token is required to allow the agent to modify wo
 
 The workflow only runs for issues created by the repository owner (`author_association == 'OWNER'`).
 
+## Comment Commands
+
+Use these commands in issue comments (only works for issue author/owner):
+
+| Command | Purpose |
+|---------|---------|
+| `/apply` | Start implementation after a plan has been generated |
+| `/close` | Close the issue and clean up any associated branches |
+
 ## Labels
 
 Create these labels in your repository:
 
 | Label | Purpose |
 |-------|---------|
-| `ai:implement` | Trigger the workflow |
-| `ai:in-progress` | Agent is working |
+| `ai:plan` | Trigger plan generation |
+| `ai:planning` | Agent is generating plan |
+| `ai:planned` | Plan ready for review |
+| `ai:plan-failed` | Plan generation failed |
+| `ai:implement` | Trigger direct implementation |
+| `ai:in-progress` | Agent is implementing |
 | `ai:completed` | Successful completion |
-| `ai:failed` | Workflow failed |
+| `ai:failed` | Implementation failed |
 
 ## Agent Capabilities
 
