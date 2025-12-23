@@ -17,6 +17,7 @@ from claude_runner import (
     build_plan_continuation_prompt,
     get_options,
     run_claude,
+    run_summary_agent,
     run_claude_chunked,
     run_claude_plan_chunked,
     is_complete,
@@ -117,6 +118,24 @@ def test_get_options_accepts_custom_max_turns():
 def test_get_options_accepts_resume():
     options = get_options(resume="session-123")
     assert options.resume == "session-123"
+
+
+def test_get_options_accepts_custom_allowed_tools():
+    custom_tools = ["Read", "Write"]
+    options = get_options(allowed_tools=custom_tools)
+    assert options.allowed_tools == custom_tools
+
+
+def test_get_options_with_none_allowed_tools():
+    options = get_options(allowed_tools=None)
+    # When allowed_tools is None, the SDK sets it to an empty list []
+    # which allows unrestricted tool access
+    assert options.allowed_tools == []
+
+
+def test_get_options_defaults_to_file_editing_tools():
+    options = get_options()
+    assert options.allowed_tools == FILE_EDITING_TOOLS
 
 
 # extract_session_id tests
@@ -483,6 +502,87 @@ def test_build_final_summary_prompt_includes_all_summaries():
     assert "Summary 2" in prompt
     assert "Chunk 1" in prompt
     assert "Chunk 2" in prompt
+
+
+# run_summary_agent tests
+
+async def test_run_summary_agent_uses_unrestricted_tools():
+    """Test that run_summary_agent calls run_claude with allowed_tools=None."""
+    from unittest.mock import AsyncMock
+    from claude_agent_sdk.types import AssistantMessage, TextBlock
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        captured_allowed_tools = None
+
+        async def mock_run_claude(prompt, cwd, max_turns, allowed_tools=None):
+            nonlocal captured_allowed_tools
+            captured_allowed_tools = allowed_tools
+            # Return a mock AssistantMessage with text in content blocks
+            msg = AssistantMessage(
+                content=[TextBlock(text="Test summary text")],
+                model="claude"
+            )
+            yield msg
+
+        with patch("claude_runner.run_claude", mock_run_claude):
+            from claude_runner import run_summary_agent
+            result = await run_summary_agent("Test prompt", tmpdir)
+
+            # Verify that allowed_tools was None (unrestricted)
+            assert captured_allowed_tools is None
+            # Verify that we got the summary text
+            assert result == "Test summary text"
+
+
+async def test_run_summary_agent_extracts_text_from_messages():
+    """Test that run_summary_agent correctly extracts text from AssistantMessage."""
+    from claude_agent_sdk.types import AssistantMessage, TextBlock
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        async def mock_run_claude(*args, **kwargs):
+            yield AssistantMessage(
+                content=[TextBlock(text="First part. ")],
+                model="claude"
+            )
+            yield AssistantMessage(
+                content=[TextBlock(text="Second part.")],
+                model="claude"
+            )
+
+        with patch("claude_runner.run_claude", mock_run_claude):
+            from claude_runner import run_summary_agent
+            result = await run_summary_agent("Test prompt", tmpdir)
+
+            assert result == "First part. Second part."
+
+
+async def test_run_summary_agent_handles_no_output():
+    """Test that run_summary_agent returns error message when no text is produced."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        async def mock_run_claude(*args, **kwargs):
+            # Yield messages with no text
+            yield {"type": "other"}
+
+        with patch("claude_runner.run_claude", mock_run_claude):
+            from claude_runner import run_summary_agent
+            result = await run_summary_agent("Test prompt", tmpdir)
+
+            assert result == "Summary generation did not produce output."
+
+
+async def test_run_summary_agent_handles_exceptions():
+    """Test that run_summary_agent handles exceptions gracefully."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        async def mock_run_claude(*args, **kwargs):
+            raise RuntimeError("Test error")
+            yield  # Make it a generator
+
+        with patch("claude_runner.run_claude", mock_run_claude):
+            from claude_runner import run_summary_agent
+            result = await run_summary_agent("Test prompt", tmpdir)
+
+            assert "Error generating summary" in result
+            assert "Test error" in result
 
 
 async def test_run_claude_chunked_with_callbacks():
