@@ -15,7 +15,7 @@ jobs:
       (github.event.label.name == 'ai:plan' ||
        contains(github.event.issue.title, '[ai:plan]') ||
        contains(github.event.issue.title, '@ai-plan') ||
-       contains(github.event.issue.title, 'ai:plan'))
+       startsWith(github.event.issue.title, 'ai:plan'))
     runs-on: ubuntu-latest
 
     steps:
@@ -24,7 +24,7 @@ jobs:
           !contains(github.event.issue.labels.*.name, 'ai:plan') &&
           (contains(github.event.issue.title, '[ai:plan]') ||
            contains(github.event.issue.title, '@ai-plan') ||
-           contains(github.event.issue.title, 'ai:plan'))
+           startsWith(github.event.issue.title, 'ai:plan'))
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
