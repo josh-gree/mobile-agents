@@ -13,14 +13,19 @@ from claude_runner import (
     build_prompt,
     build_pr_description_prompt,
     build_continuation_prompt,
+    build_plan_prompt,
+    build_plan_continuation_prompt,
     get_options,
     run_claude,
     run_claude_chunked,
+    run_claude_plan_chunked,
     is_complete,
+    is_plan_complete,
     cleanup_completion_marker,
     extract_session_id,
     FILE_EDITING_TOOLS,
     COMPLETION_MARKER,
+    PLAN_FILE,
 )
 from claude_agent_sdk.types import SystemMessage
 
@@ -309,3 +314,126 @@ async def test_run_claude_chunked_cleans_up_marker():
             # Marker should be cleaned up
             marker_path = Path(tmpdir) / COMPLETION_MARKER
             assert not marker_path.exists()
+
+
+# build_plan_prompt tests
+
+def test_build_plan_prompt_includes_planning_instructions():
+    result = build_plan_prompt("My Feature", "Add new feature", "/test/dir")
+    assert "planning agent" in result
+    assert "implementation plan" in result
+    assert ".plan.md" in result
+
+
+def test_build_plan_prompt_includes_issue_content():
+    result = build_plan_prompt("My Title", "My Body", "/test/dir")
+    assert "# My Title" in result
+    assert "My Body" in result
+
+
+def test_build_plan_prompt_handles_empty_body():
+    result = build_plan_prompt("Title Only", "", "/test/dir")
+    assert "# Title Only" in result
+
+
+def test_build_plan_prompt_raises_when_title_missing():
+    with pytest.raises(ValueError, match="Title is required"):
+        build_plan_prompt("", "body")
+
+
+# build_plan_continuation_prompt tests
+
+def test_build_plan_continuation_prompt_includes_continue_message():
+    result = build_plan_continuation_prompt("Title", "Body", "/test/dir")
+    assert "Continue working" in result
+    assert "ran out of turns" in result
+
+
+def test_build_plan_continuation_prompt_includes_plan_file():
+    result = build_plan_continuation_prompt("Title", "Body", "/test/dir")
+    assert ".plan.md" in result
+
+
+def test_build_plan_continuation_prompt_includes_issue():
+    result = build_plan_continuation_prompt("My Title", "My Body", "/test/dir")
+    assert "# My Title" in result
+    assert "My Body" in result
+
+
+# is_plan_complete tests
+
+def test_is_plan_complete_returns_false_when_no_plan():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        assert is_plan_complete(tmpdir) is False
+
+
+def test_is_plan_complete_returns_true_when_plan_exists():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        plan_path = Path(tmpdir) / PLAN_FILE
+        plan_path.write_text("# Plan\n\nDo stuff")
+        assert is_plan_complete(tmpdir) is True
+
+
+# run_claude_plan_chunked tests
+
+async def test_run_claude_plan_chunked_stops_when_plan_created():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        call_count = 0
+
+        async def mock_query(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            # Simulate agent creating plan file on first chunk
+            plan_path = Path(tmpdir) / PLAN_FILE
+            plan_path.write_text("# Plan\n\nDo stuff")
+            yield {"type": "message", "content": "Done"}
+
+        with patch("claude_runner.query", mock_query):
+            messages = []
+            async for msg in run_claude_plan_chunked("Title", "Body", tmpdir, max_chunks=5):
+                messages.append(msg)
+
+            # Should only run one chunk since plan was created
+            assert call_count == 1
+
+
+async def test_run_claude_plan_chunked_continues_without_plan():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        chunk_count = 0
+
+        async def mock_query(*args, **kwargs):
+            nonlocal chunk_count
+            chunk_count += 1
+            yield {"type": "message", "content": f"Chunk {chunk_count}"}
+
+        with patch("claude_runner.query", mock_query):
+            messages = []
+            async for msg in run_claude_plan_chunked("Title", "Body", tmpdir, max_chunks=3):
+                messages.append(msg)
+
+            # Should run all 3 chunks since no plan created
+            assert chunk_count == 3
+
+
+async def test_run_claude_plan_chunked_resumes_session():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        call_count = 0
+        captured_options = []
+
+        async def mock_query(prompt, options):
+            nonlocal call_count
+            call_count += 1
+            captured_options.append(options)
+            if call_count == 1:
+                yield SystemMessage(subtype="init", data={"session_id": "plan-session-456"})
+            yield {"type": "message", "content": "work"}
+
+        with patch("claude_runner.query", mock_query):
+            messages = []
+            async for msg in run_claude_plan_chunked("Title", "Body", tmpdir, max_chunks=3):
+                messages.append(msg)
+
+            # First chunk should have no resume, subsequent chunks should use session_id
+            assert captured_options[0].resume is None
+            assert captured_options[1].resume == "plan-session-456"
+            assert captured_options[2].resume == "plan-session-456"

@@ -9,7 +9,7 @@ import sys
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
-from claude_runner import run_claude_plan
+from claude_runner import run_claude_plan_chunked
 
 
 async def main():
@@ -32,8 +32,8 @@ async def main():
     try:
         cwd = os.getcwd()
 
-        # Run plan generation with limited turns (planning should be quick)
-        async for message in run_claude_plan(issue_title, issue_body, cwd):
+        # Run plan generation in chunks (10 turns per chunk, up to 3 chunks = 30 turns max)
+        async for message in run_claude_plan_chunked(issue_title, issue_body, cwd):
             print(json.dumps(message, default=str))
 
     except Exception as e:
