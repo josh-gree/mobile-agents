@@ -2,7 +2,7 @@ name: Agent Implement
 
 on:
   issues:
-    types: [labeled]
+    types: [labeled, opened, edited]
 
 permissions:
   issues: write
@@ -10,8 +10,45 @@ permissions:
   pull-requests: write
 
 jobs:
+  check-trigger:
+    # This job runs on opened/edited events to check for trigger in title
+    if: >-
+      (github.event.action == 'opened' || github.event.action == 'edited') &&
+      github.event.issue.author_association == 'OWNER'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check for trigger in title and add label
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const issue = context.payload.issue;
+            const title = issue.title.toLowerCase();
+
+            // Check if title contains trigger keywords
+            const triggers = ['[ai:implement]', '[ai-implement]', '[implement]'];
+            const hasTrigger = triggers.some(trigger => title.includes(trigger));
+
+            if (hasTrigger) {
+              // Check if label already exists
+              const hasLabel = issue.labels.some(label => label.name === 'ai:implement');
+
+              if (!hasLabel) {
+                // Add ai:implement label
+                await github.rest.issues.addLabels({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issue.number,
+                  labels: ['ai:implement']
+                });
+                console.log('Added ai:implement label based on title trigger');
+              }
+            }
+
   implement:
     if: >-
+      github.event.action == 'labeled' &&
       github.event.label.name == 'ai:implement' &&
       github.event.issue.author_association == 'OWNER'
     runs-on: ubuntu-latest
