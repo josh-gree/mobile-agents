@@ -2,9 +2,10 @@
 
 import os
 from pathlib import Path
+from typing import Callable, Awaitable
 
 from claude_agent_sdk import query, ClaudeAgentOptions
-from claude_agent_sdk.types import SystemMessage
+from claude_agent_sdk.types import SystemMessage, AssistantMessage, UserMessage
 
 
 FILE_EDITING_TOOLS = ["Read", "Edit", "Write", "Glob", "Grep"]
@@ -156,12 +157,152 @@ def extract_session_id(message) -> str | None:
     return None
 
 
+def extract_turn_summary(messages: list) -> str:
+    """Extract a concise summary of turns from messages.
+
+    Focuses on tool uses and key text responses, omitting verbose details.
+    """
+    summary_parts = []
+
+    for i, message in enumerate(messages, 1):
+        if isinstance(message, AssistantMessage):
+            # Extract tool uses
+            if hasattr(message, 'tool_uses') and message.tool_uses:
+                for tool_use in message.tool_uses:
+                    tool_name = tool_use.get('name', 'Unknown')
+                    # Add concise description of tool use
+                    if tool_name in ['Read', 'Edit', 'Write', 'Glob', 'Grep']:
+                        params = tool_use.get('params', {})
+                        if tool_name == 'Read':
+                            file_path = params.get('file_path', '')
+                            if file_path:
+                                file_name = file_path.split('/')[-1]
+                                summary_parts.append(f"- Read {file_name}")
+                        elif tool_name == 'Write':
+                            file_path = params.get('file_path', '')
+                            if file_path:
+                                file_name = file_path.split('/')[-1]
+                                summary_parts.append(f"- Created {file_name}")
+                        elif tool_name == 'Edit':
+                            file_path = params.get('file_path', '')
+                            if file_path:
+                                file_name = file_path.split('/')[-1]
+                                summary_parts.append(f"- Modified {file_name}")
+                        elif tool_name == 'Glob':
+                            pattern = params.get('pattern', '')
+                            summary_parts.append(f"- Searched for files: {pattern}")
+                        elif tool_name == 'Grep':
+                            pattern = params.get('pattern', '')
+                            summary_parts.append(f"- Searched code: {pattern}")
+
+            # Extract key text (first 100 chars)
+            if hasattr(message, 'text') and message.text:
+                text_snippet = message.text[:100].replace('\n', ' ').strip()
+                if text_snippet:
+                    summary_parts.append(f"- Note: {text_snippet}...")
+
+    return "\n".join(summary_parts) if summary_parts else "No significant activity recorded"
+
+
+def build_chunk_summary_prompt(
+    title: str,
+    body: str,
+    chunk_messages: list,
+    chunk_num: int,
+    cwd: str,
+) -> str:
+    """Build a prompt for summarizing what was done in a chunk.
+
+    Returns a prompt that asks Claude to summarize the chunk's work.
+    """
+    turn_summary = extract_turn_summary(chunk_messages)
+
+    return f"""You are analyzing the progress of an AI agent working on a task. Based on the activity log below, provide a concise summary.
+
+# Original Task
+**{title}**
+
+{body if body else '(No additional description)'}
+
+# Activity in Chunk {chunk_num + 1}
+{turn_summary}
+
+# Your Task
+Provide a brief summary with two sections:
+
+## ✅ Completed This Chunk
+List 2-4 bullet points of what was accomplished in this chunk. Be specific but concise.
+
+## 📋 Remaining Work
+List 1-3 bullet points of what still needs to be done. If the task appears complete, say "All work appears to be complete."
+
+Keep your response concise and focused. Use bullet points only, no additional explanations."""
+
+
+def build_final_summary_prompt(
+    title: str,
+    body: str,
+    all_chunk_summaries: list[str],
+    cwd: str,
+) -> str:
+    """Build a prompt for generating a final comprehensive summary.
+
+    Takes all chunk summaries and creates an overall summary.
+    """
+    chunks_text = "\n\n".join([
+        f"### Chunk {i + 1}\n{summary}"
+        for i, summary in enumerate(all_chunk_summaries)
+    ])
+
+    return f"""You are creating a final summary of an AI agent's work on a task.
+
+# Original Task
+**{title}**
+
+{body if body else '(No additional description)'}
+
+# Progress Across All Chunks
+{chunks_text}
+
+# Your Task
+Provide a comprehensive final summary:
+
+## 📊 Summary of All Changes
+Provide 3-5 bullet points summarizing the key changes made across all chunks. Focus on the overall outcome.
+
+## 🎯 Completion Status
+State whether the task was fully completed or if there are remaining items. Be factual and concise.
+
+Keep your response clear and focused."""
+
+
+async def run_summary_agent(prompt: str, cwd: str, max_turns: int = 3) -> str:
+    """Run a quick agent session to generate a summary.
+
+    Uses a limited number of turns to quickly generate a summary.
+    Returns the summary text or an error message.
+    """
+    try:
+        summary_text = ""
+        async for message in run_claude(prompt, cwd, max_turns):
+            # Extract text from assistant messages
+            if isinstance(message, AssistantMessage):
+                if hasattr(message, 'text') and message.text:
+                    summary_text += message.text
+
+        return summary_text.strip() if summary_text else "Summary generation did not produce output."
+    except Exception as e:
+        return f"Error generating summary: {e}"
+
+
 async def run_claude_chunked(
     title: str,
     body: str,
     cwd: str | None = None,
     turns_per_chunk: int = DEFAULT_TURNS_PER_CHUNK,
     max_chunks: int = DEFAULT_MAX_CHUNKS,
+    on_chunk_complete: Callable[[int, str], Awaitable[None]] | None = None,
+    on_final_complete: Callable[[list[str]], Awaitable[None]] | None = None,
 ):
     """Run Claude in chunks, allowing more turns for complex tasks.
 
@@ -171,6 +312,15 @@ async def run_claude_chunked(
     Yields messages from each chunk. Stops when:
     - The completion marker file is created (agent signals done)
     - max_chunks is reached
+
+    Args:
+        title: Task title
+        body: Task description
+        cwd: Working directory
+        turns_per_chunk: Number of turns per chunk
+        max_chunks: Maximum number of chunks
+        on_chunk_complete: Optional callback called after each chunk with (chunk_num, summary)
+        on_final_complete: Optional callback called at end with list of all summaries
     """
     if cwd is None:
         cwd = os.getcwd()
@@ -179,6 +329,7 @@ async def run_claude_chunked(
     cleanup_completion_marker(cwd)
 
     session_id = None
+    all_chunk_summaries = []
 
     for chunk_num in range(max_chunks):
         # Build prompt - initial or continuation
@@ -187,19 +338,56 @@ async def run_claude_chunked(
         else:
             prompt = build_continuation_prompt(title, body, cwd)
 
+        # Collect messages from this chunk
+        chunk_messages = []
+
         # Run this chunk, resuming session if we have one
         async for message in run_claude(prompt, cwd, turns_per_chunk, resume=session_id):
             # Capture session_id from init message
             if session_id is None:
                 session_id = extract_session_id(message)
+            chunk_messages.append(message)
             yield message
+
+        # Generate summary for this chunk
+        if on_chunk_complete:
+            try:
+                summary_prompt = build_chunk_summary_prompt(
+                    title, body, chunk_messages, chunk_num, cwd
+                )
+                summary = await run_summary_agent(summary_prompt, cwd)
+                all_chunk_summaries.append(summary)
+                await on_chunk_complete(chunk_num, summary)
+            except Exception as e:
+                print(f"Error generating/posting chunk summary: {e}")
+                # Continue execution even if summary fails
 
         # Check if agent signalled completion
         if is_complete(cwd):
             cleanup_completion_marker(cwd)
+            # Generate final summary
+            if on_final_complete and all_chunk_summaries:
+                try:
+                    final_prompt = build_final_summary_prompt(
+                        title, body, all_chunk_summaries, cwd
+                    )
+                    final_summary = await run_summary_agent(final_prompt, cwd)
+                    await on_final_complete(all_chunk_summaries)
+                except Exception as e:
+                    print(f"Error generating/posting final summary: {e}")
             return
 
     # If we get here, we hit max_chunks without completion
+    # Still generate final summary
+    if on_final_complete and all_chunk_summaries:
+        try:
+            final_prompt = build_final_summary_prompt(
+                title, body, all_chunk_summaries, cwd
+            )
+            final_summary = await run_summary_agent(final_prompt, cwd)
+            await on_final_complete(all_chunk_summaries)
+        except Exception as e:
+            print(f"Error generating/posting final summary: {e}")
 
 
 def build_plan_prompt(title: str, body: str, cwd: str | None = None) -> str:
@@ -309,6 +497,8 @@ async def run_claude_plan_chunked(
     cwd: str | None = None,
     turns_per_chunk: int = DEFAULT_PLAN_TURNS_PER_CHUNK,
     max_chunks: int = DEFAULT_PLAN_MAX_CHUNKS,
+    on_chunk_complete: Callable[[int, str], Awaitable[None]] | None = None,
+    on_final_complete: Callable[[list[str]], Awaitable[None]] | None = None,
 ):
     """Run Claude planning in chunks, allowing more turns for complex exploration.
 
@@ -318,11 +508,21 @@ async def run_claude_plan_chunked(
     Yields messages from each chunk. Stops when:
     - The .plan.md file is created (agent signals done)
     - max_chunks is reached
+
+    Args:
+        title: Task title
+        body: Task description
+        cwd: Working directory
+        turns_per_chunk: Number of turns per chunk
+        max_chunks: Maximum number of chunks
+        on_chunk_complete: Optional callback called after each chunk with (chunk_num, summary)
+        on_final_complete: Optional callback called at end with list of all summaries
     """
     if cwd is None:
         cwd = os.getcwd()
 
     session_id = None
+    all_chunk_summaries = []
 
     for chunk_num in range(max_chunks):
         # Build prompt - initial or continuation
@@ -331,15 +531,52 @@ async def run_claude_plan_chunked(
         else:
             prompt = build_plan_continuation_prompt(title, body, cwd)
 
+        # Collect messages from this chunk
+        chunk_messages = []
+
         # Run this chunk, resuming session if we have one
         async for message in run_claude(prompt, cwd, turns_per_chunk, resume=session_id):
             # Capture session_id from init message
             if session_id is None:
                 session_id = extract_session_id(message)
+            chunk_messages.append(message)
             yield message
+
+        # Generate summary for this chunk
+        if on_chunk_complete:
+            try:
+                summary_prompt = build_chunk_summary_prompt(
+                    title, body, chunk_messages, chunk_num, cwd
+                )
+                summary = await run_summary_agent(summary_prompt, cwd)
+                all_chunk_summaries.append(summary)
+                await on_chunk_complete(chunk_num, summary)
+            except Exception as e:
+                print(f"Error generating/posting chunk summary: {e}")
+                # Continue execution even if summary fails
 
         # Check if agent created the plan file
         if is_plan_complete(cwd):
+            # Generate final summary
+            if on_final_complete and all_chunk_summaries:
+                try:
+                    final_prompt = build_final_summary_prompt(
+                        title, body, all_chunk_summaries, cwd
+                    )
+                    final_summary = await run_summary_agent(final_prompt, cwd)
+                    await on_final_complete(all_chunk_summaries)
+                except Exception as e:
+                    print(f"Error generating/posting final summary: {e}")
             return
 
     # If we get here, we hit max_chunks without completing the plan
+    # Still generate final summary
+    if on_final_complete and all_chunk_summaries:
+        try:
+            final_prompt = build_final_summary_prompt(
+                title, body, all_chunk_summaries, cwd
+            )
+            final_summary = await run_summary_agent(final_prompt, cwd)
+            await on_final_complete(all_chunk_summaries)
+        except Exception as e:
+            print(f"Error generating/posting final summary: {e}")
