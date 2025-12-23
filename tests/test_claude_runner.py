@@ -49,19 +49,23 @@ def test_build_prompt_handles_multiline_body():
 
 
 def test_build_prompt_raises_when_title_missing():
-    with pytest.raises(ValueError, match="Title and body are required"):
+    with pytest.raises(ValueError, match="Title is required"):
         build_prompt("", "body")
 
-    with pytest.raises(ValueError, match="Title and body are required"):
+    with pytest.raises(ValueError, match="Title is required"):
         build_prompt(None, "body")
 
 
-def test_build_prompt_raises_when_body_missing():
-    with pytest.raises(ValueError, match="Title and body are required"):
-        build_prompt("title", "")
+def test_build_prompt_allows_empty_body():
+    """Test that body is optional - title alone is sufficient."""
+    # Empty string body should work
+    result = build_prompt("title", "")
+    assert "# title" in result
+    assert not result.endswith("\n\n")  # No extra content after title
 
-    with pytest.raises(ValueError, match="Title and body are required"):
-        build_prompt("title", None)
+    # None body should work (converted to empty string)
+    result = build_prompt("title", None)
+    assert "# title" in result
 
 
 # build_pr_description_prompt tests
