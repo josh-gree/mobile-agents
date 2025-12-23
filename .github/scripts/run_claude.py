@@ -9,7 +9,7 @@ import sys
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
-from claude_runner import build_prompt, run_claude
+from claude_runner import run_claude_chunked
 
 
 async def main():
@@ -27,9 +27,9 @@ async def main():
 
     try:
         cwd = os.getcwd()
-        prompt = build_prompt(issue_title, issue_body, cwd)
 
-        async for message in run_claude(prompt, cwd):
+        # Run in chunks of 10 turns, up to 5 chunks (50 turns max)
+        async for message in run_claude_chunked(issue_title, issue_body, cwd):
             print(json.dumps(message, default=str))
 
     except Exception as e:

@@ -2,12 +2,25 @@
 
 import pytest
 from unittest.mock import patch
+import tempfile
+from pathlib import Path
 
 import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from claude_runner import build_prompt, build_pr_description_prompt, get_options, run_claude, FILE_EDITING_TOOLS
+from claude_runner import (
+    build_prompt,
+    build_pr_description_prompt,
+    build_continuation_prompt,
+    get_options,
+    run_claude,
+    run_claude_chunked,
+    is_complete,
+    cleanup_completion_marker,
+    FILE_EDITING_TOOLS,
+    COMPLETION_MARKER,
+)
 
 
 # build_prompt tests
@@ -123,3 +136,123 @@ async def test_run_claude_yields_all_messages():
         assert len(messages) == 3
         assert messages[0]["content"] == "First"
         assert messages[2]["content"] == "Third"
+
+
+# build_prompt completion signal tests
+
+def test_build_prompt_includes_completion_signal():
+    result = build_prompt("Title", "Body", "/test/dir")
+    assert "COMPLETION SIGNAL" in result
+    assert ".claude-complete" in result
+    assert "DONE" in result
+
+
+# build_continuation_prompt tests
+
+def test_build_continuation_prompt_includes_task():
+    result = build_continuation_prompt("My Title", "My Body", "/test/dir")
+    assert "# My Title" in result
+    assert "My Body" in result
+
+
+def test_build_continuation_prompt_includes_continue_message():
+    result = build_continuation_prompt("Title", "Body", "/test/dir")
+    assert "Continue working" in result
+    assert "ran out of turns" in result
+
+
+def test_build_continuation_prompt_includes_completion_signal():
+    result = build_continuation_prompt("Title", "Body", "/test/dir")
+    assert ".claude-complete" in result
+    assert "DONE" in result
+
+
+# is_complete tests
+
+def test_is_complete_returns_false_when_no_marker():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        assert is_complete(tmpdir) is False
+
+
+def test_is_complete_returns_true_when_marker_exists():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        marker_path = Path(tmpdir) / COMPLETION_MARKER
+        marker_path.write_text("DONE")
+        assert is_complete(tmpdir) is True
+
+
+# cleanup_completion_marker tests
+
+def test_cleanup_completion_marker_removes_marker():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        marker_path = Path(tmpdir) / COMPLETION_MARKER
+        marker_path.write_text("DONE")
+        assert marker_path.exists()
+
+        cleanup_completion_marker(tmpdir)
+        assert not marker_path.exists()
+
+
+def test_cleanup_completion_marker_no_error_when_missing():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Should not raise when marker doesn't exist
+        cleanup_completion_marker(tmpdir)
+
+
+# run_claude_chunked tests
+
+async def test_run_claude_chunked_stops_on_completion():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        call_count = 0
+
+        async def mock_query(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            # Simulate agent creating completion marker on first chunk
+            marker_path = Path(tmpdir) / COMPLETION_MARKER
+            marker_path.write_text("DONE")
+            yield {"type": "message", "content": "Done"}
+
+        with patch("claude_runner.query", mock_query):
+            messages = []
+            async for msg in run_claude_chunked("Title", "Body", tmpdir, max_chunks=5):
+                messages.append(msg)
+
+            # Should only run one chunk since completion marker was created
+            assert call_count == 1
+            assert len(messages) == 1
+
+
+async def test_run_claude_chunked_continues_without_completion():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        chunk_count = 0
+
+        async def mock_query(*args, **kwargs):
+            nonlocal chunk_count
+            chunk_count += 1
+            yield {"type": "message", "content": f"Chunk {chunk_count}"}
+
+        with patch("claude_runner.query", mock_query):
+            messages = []
+            async for msg in run_claude_chunked("Title", "Body", tmpdir, max_chunks=3):
+                messages.append(msg)
+
+            # Should run all 3 chunks since no completion marker
+            assert chunk_count == 3
+            assert len(messages) == 3
+
+
+async def test_run_claude_chunked_cleans_up_marker():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        async def mock_query(*args, **kwargs):
+            marker_path = Path(tmpdir) / COMPLETION_MARKER
+            marker_path.write_text("DONE")
+            yield {"type": "message", "content": "Done"}
+
+        with patch("claude_runner.query", mock_query):
+            async for _ in run_claude_chunked("Title", "Body", tmpdir):
+                pass
+
+            # Marker should be cleaned up
+            marker_path = Path(tmpdir) / COMPLETION_MARKER
+            assert not marker_path.exists()
