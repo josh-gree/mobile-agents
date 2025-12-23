@@ -265,3 +265,81 @@ async def run_claude_plan(title: str, body: str, cwd: str | None = None, max_tur
     # Run with limited turns - planning should be faster than implementation
     async for message in run_claude(prompt, cwd, max_turns):
         yield message
+
+
+PLAN_FILE = ".plan.md"
+DEFAULT_PLAN_TURNS_PER_CHUNK = 10
+DEFAULT_PLAN_MAX_CHUNKS = 3
+
+
+def is_plan_complete(cwd: str) -> bool:
+    """Check if the plan file exists (signals planning is done)."""
+    plan_path = Path(cwd) / PLAN_FILE
+    return plan_path.exists()
+
+
+def build_plan_continuation_prompt(title: str, body: str, cwd: str) -> str:
+    """Build a continuation prompt for when the planning agent needs more turns."""
+    plan_file = f"{cwd}/{PLAN_FILE}"
+
+    # Handle empty body gracefully
+    issue_content = f"# {title}"
+    if body and body.strip():
+        issue_content = f"{issue_content}\n\n{body}"
+
+    return f"""Continue working on the implementation plan. You were exploring the codebase but ran out of turns.
+
+Review what you've learned so far and continue creating the plan.
+
+Working directory: {cwd}
+
+Remember:
+- Use Glob, Grep, and Read to explore the codebase
+- When you have enough information, write the plan to: {plan_file}
+- The plan should include: Overview, Files to modify/create, Implementation steps, Testing approach, Potential risks
+
+## Issue to plan for:
+
+{issue_content}"""
+
+
+async def run_claude_plan_chunked(
+    title: str,
+    body: str,
+    cwd: str | None = None,
+    turns_per_chunk: int = DEFAULT_PLAN_TURNS_PER_CHUNK,
+    max_chunks: int = DEFAULT_PLAN_MAX_CHUNKS,
+):
+    """Run Claude planning in chunks, allowing more turns for complex exploration.
+
+    Uses session resume to continue the conversation across chunks,
+    preserving context from previous turns.
+
+    Yields messages from each chunk. Stops when:
+    - The .plan.md file is created (agent signals done)
+    - max_chunks is reached
+    """
+    if cwd is None:
+        cwd = os.getcwd()
+
+    session_id = None
+
+    for chunk_num in range(max_chunks):
+        # Build prompt - initial or continuation
+        if chunk_num == 0:
+            prompt = build_plan_prompt(title, body, cwd)
+        else:
+            prompt = build_plan_continuation_prompt(title, body, cwd)
+
+        # Run this chunk, resuming session if we have one
+        async for message in run_claude(prompt, cwd, turns_per_chunk, resume=session_id):
+            # Capture session_id from init message
+            if session_id is None:
+                session_id = extract_session_id(message)
+            yield message
+
+        # Check if agent created the plan file
+        if is_plan_complete(cwd):
+            return
+
+    # If we get here, we hit max_chunks without completing the plan
