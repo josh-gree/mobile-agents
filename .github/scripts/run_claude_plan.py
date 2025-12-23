@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Entry point for running Claude agent from GitHub Actions."""
+"""Entry point for running Claude agent to generate a plan from GitHub Actions."""
 
 import asyncio
 import json
@@ -9,14 +9,13 @@ import sys
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
-from claude_runner import run_claude_chunked
+from claude_runner import run_claude_plan
 
 
 async def main():
     issue_title = os.environ.get("ISSUE_TITLE")
     issue_body = os.environ.get("ISSUE_BODY")
     api_key = os.environ.get("ANTHROPIC_API_KEY")
-    has_plan = os.environ.get("HAS_PLAN", "not-found")
 
     if not api_key:
         print("Error: ANTHROPIC_API_KEY environment variable is required", file=sys.stderr)
@@ -33,21 +32,12 @@ async def main():
     try:
         cwd = os.getcwd()
 
-        # If there's a plan, append it to the issue body
-        if has_plan == "found":
-            plan_file = os.path.join(cwd, ".plan-context.md")
-            if os.path.exists(plan_file):
-                with open(plan_file, "r") as f:
-                    plan_content = f.read()
-                issue_body = f"{issue_body}\n\n## Implementation Plan\n\n{plan_content}"
-                print("Found and included implementation plan in context")
-
-        # Run in chunks of 10 turns, up to 5 chunks (50 turns max)
-        async for message in run_claude_chunked(issue_title, issue_body, cwd):
+        # Run plan generation with limited turns (planning should be quick)
+        async for message in run_claude_plan(issue_title, issue_body, cwd):
             print(json.dumps(message, default=str))
 
     except Exception as e:
-        print(f"Error running Claude: {e}", file=sys.stderr)
+        print(f"Error running Claude plan: {e}", file=sys.stderr)
         sys.exit(1)
 
 

@@ -1,0 +1,156 @@
+name: Agent Plan
+
+on:
+  issues:
+    types: [labeled, opened, edited]
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  plan:
+    if: >-
+      github.event.issue.author_association == 'OWNER' &&
+      (github.event.label.name == 'ai:plan' ||
+       contains(github.event.issue.title, '[ai:plan]') ||
+       contains(github.event.issue.title, '@ai-plan'))
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Add label if triggered by title
+        if: >-
+          !contains(github.event.issue.labels.*.name, 'ai:plan') &&
+          (contains(github.event.issue.title, '[ai:plan]') ||
+           contains(github.event.issue.title, '@ai-plan'))
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.issue.number,
+              labels: ['ai:plan']
+            });
+
+      - name: Swap labels
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const issue = context.payload.issue;
+
+            // Remove ai:plan label
+            await github.rest.issues.removeLabel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              name: 'ai:plan'
+            });
+
+            // Add ai:planning label
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              labels: ['ai:planning']
+            });
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Cache uv
+        uses: actions/cache@v4
+        id: cache-uv
+        with:
+          path: .venv
+          key: ${{ runner.os }}-uv-${{ hashFiles('uv.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Generate plan
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: uv run python .github/scripts/run_claude_plan.py
+
+      - name: Post plan as comment
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const issue = context.payload.issue;
+
+            // Read the generated plan
+            let planContent;
+            try {
+              planContent = fs.readFileSync('.plan.md', 'utf8');
+            } catch (error) {
+              console.log('No plan file found, creating default message');
+              planContent = '⚠️ Unable to generate a plan. Please check the issue description and try again.';
+            }
+
+            // Post the plan as a comment
+            const commentBody = `## 🤖 Implementation Plan\n\n${planContent}\n\n---\n\n**Next steps:**\n- Comment \`/apply\` to start implementation based on this plan\n- Comment \`/close\` to close this issue and cancel the plan`;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              body: commentBody
+            });
+
+      - name: Label success
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const issue = context.payload.issue;
+            await github.rest.issues.removeLabel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              name: 'ai:planning'
+            }).catch(() => {});
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              labels: ['ai:planned']
+            });
+
+      - name: Label failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const issue = context.payload.issue;
+            await github.rest.issues.removeLabel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              name: 'ai:planning'
+            }).catch(() => {});
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              labels: ['ai:plan-failed']
+            });

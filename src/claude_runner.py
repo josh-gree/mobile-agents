@@ -200,3 +200,68 @@ async def run_claude_chunked(
             return
 
     # If we get here, we hit max_chunks without completion
+
+
+def build_plan_prompt(title: str, body: str, cwd: str | None = None) -> str:
+    """Build prompt for generating an implementation plan."""
+    if not title:
+        raise ValueError("Title is required")
+
+    # Allow empty body - title alone is sufficient
+    if body is None:
+        body = ""
+
+    if cwd is None:
+        cwd = os.getcwd()
+
+    plan_file = f"{cwd}/.plan.md"
+
+    # Handle empty body gracefully
+    issue_content = f"# {title}"
+    if body and body.strip():
+        issue_content = f"{issue_content}\n\n{body}"
+
+    return f"""You are a planning agent. Your task is to analyze the issue and create a detailed implementation plan.
+
+Working directory: {cwd}
+
+IMPORTANT: You MUST use the file editing tools (Read, Edit, Write, Glob, Grep) to explore the codebase and create the plan.
+
+Steps to follow:
+1. Use Glob and Grep to explore the codebase structure
+2. Use Read to examine relevant files
+3. Analyze the issue requirements
+4. Create a detailed implementation plan in markdown format
+5. Write the plan to: {plan_file}
+
+The plan should include:
+- **Overview**: Brief summary of what needs to be done
+- **Files to modify/create**: List of files that will be changed or created
+- **Implementation steps**: Numbered list of specific steps to implement the feature
+- **Testing approach**: How to verify the changes work
+- **Potential risks/considerations**: Any gotchas or edge cases to watch out for
+
+Do NOT implement the changes - only create the plan.
+
+All file paths must be absolute paths within the working directory.
+
+When you have finished creating the plan, write it to: {plan_file}
+
+## Issue to plan for:
+
+{issue_content}"""
+
+
+async def run_claude_plan(title: str, body: str, cwd: str | None = None, max_turns: int = 15):
+    """Run Claude to generate an implementation plan.
+
+    Returns an async iterator of messages. The plan will be written to .plan.md
+    """
+    if cwd is None:
+        cwd = os.getcwd()
+
+    prompt = build_plan_prompt(title, body, cwd)
+
+    # Run with limited turns - planning should be faster than implementation
+    async for message in run_claude(prompt, cwd, max_turns):
+        yield message
