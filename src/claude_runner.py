@@ -119,20 +119,40 @@ Do NOT include a test plan section.
 Now write the PR description to {cwd}/.pr-description.md using the Write tool."""
 
 
-def get_options(cwd: str | None = None, max_turns: int = 10, resume: str | None = None) -> ClaudeAgentOptions:
-    """Get Claude agent options with file editing tools."""
-    return ClaudeAgentOptions(
-        allowed_tools=FILE_EDITING_TOOLS,
-        permission_mode="bypassPermissions",
-        max_turns=max_turns,
-        cwd=Path(cwd) if cwd else None,
-        resume=resume,
-    )
+def get_options(cwd: str | None = None, max_turns: int = 10, resume: str | None = None, allowed_tools: list[str] | None = FILE_EDITING_TOOLS) -> ClaudeAgentOptions:
+    """Get Claude agent options with file editing tools.
+
+    Args:
+        cwd: Working directory
+        max_turns: Maximum number of turns
+        resume: Session ID to resume from
+        allowed_tools: List of allowed tools, or None for unrestricted. Defaults to FILE_EDITING_TOOLS.
+    """
+    options_dict = {
+        "permission_mode": "bypassPermissions",
+        "max_turns": max_turns,
+        "cwd": Path(cwd) if cwd else None,
+        "resume": resume,
+    }
+
+    # Only set allowed_tools if it's not None
+    if allowed_tools is not None:
+        options_dict["allowed_tools"] = allowed_tools
+
+    return ClaudeAgentOptions(**options_dict)
 
 
-async def run_claude(prompt: str, cwd: str | None = None, max_turns: int = 10, resume: str | None = None):
-    """Run Claude with the given prompt. Returns an async iterator of messages."""
-    options = get_options(cwd, max_turns, resume)
+async def run_claude(prompt: str, cwd: str | None = None, max_turns: int = 10, resume: str | None = None, allowed_tools: list[str] | None = FILE_EDITING_TOOLS):
+    """Run Claude with the given prompt. Returns an async iterator of messages.
+
+    Args:
+        prompt: The prompt to run
+        cwd: Working directory
+        max_turns: Maximum number of turns
+        resume: Session ID to resume from
+        allowed_tools: List of allowed tools, or None for unrestricted. Defaults to FILE_EDITING_TOOLS.
+    """
+    options = get_options(cwd, max_turns, resume, allowed_tools)
     async for message in query(prompt=prompt, options=options):
         yield message
 
@@ -281,14 +301,21 @@ async def run_summary_agent(prompt: str, cwd: str, max_turns: int = 3) -> str:
 
     Uses a limited number of turns to quickly generate a summary.
     Returns the summary text or an error message.
+
+    Note: This function uses unrestricted tools (allowed_tools=None) to allow
+    the agent to generate plain text responses without being forced to use
+    file editing tools.
     """
     try:
         summary_text = ""
-        async for message in run_claude(prompt, cwd, max_turns):
+        # Use allowed_tools=None to allow unrestricted text generation
+        async for message in run_claude(prompt, cwd, max_turns, allowed_tools=None):
             # Extract text from assistant messages
             if isinstance(message, AssistantMessage):
-                if hasattr(message, 'text') and message.text:
-                    summary_text += message.text
+                # Extract text from content blocks
+                for block in message.content:
+                    if hasattr(block, 'text') and block.text:
+                        summary_text += block.text
 
         return summary_text.strip() if summary_text else "Summary generation did not produce output."
     except Exception as e:
