@@ -15,8 +15,12 @@ DEFAULT_MAX_CHUNKS = 5
 
 def build_prompt(title: str, body: str, cwd: str | None = None) -> str:
     """Build the prompt for Claude with system instructions."""
-    if not title or not body:
-        raise ValueError("Title and body are required")
+    if not title:
+        raise ValueError("Title is required")
+
+    # Allow empty body - title alone is sufficient
+    if body is None:
+        body = ""
 
     if cwd is None:
         cwd = os.getcwd()
@@ -48,14 +52,18 @@ When you have FULLY COMPLETED the task:
 IMPORTANT: Only write to this file when you are 100% finished with ALL requested changes.
 If you still have work to do, do NOT create this file."""
 
-    return f"{system_instructions}\n\n# {title}\n\n{body}"
+    # Include body only if it's not empty
+    if body.strip():
+        return f"{system_instructions}\n\n# {title}\n\n{body}"
+    else:
+        return f"{system_instructions}\n\n# {title}"
 
 
 def build_continuation_prompt(title: str, body: str, cwd: str) -> str:
     """Build a continuation prompt for when the agent needs more turns."""
     completion_marker_path = f"{cwd}/{COMPLETION_MARKER}"
 
-    return f"""Continue working on the task below. You were working on this but ran out of turns.
+    base_prompt = f"""Continue working on the task below. You were working on this but ran out of turns.
 
 Review what has been done so far and continue from where you left off.
 
@@ -65,15 +73,24 @@ Remember:
 - Use the file editing tools to make changes
 - When FULLY COMPLETE, write "DONE" to: {completion_marker_path}
 
-# {title}
+# {title}"""
 
-{body}"""
+    # Include body only if it's not empty
+    if body and body.strip():
+        return f"{base_prompt}\n\n{body}"
+    else:
+        return base_prompt
 
 
 def build_pr_description_prompt(title: str, body: str, diff: str, issue_number: int, cwd: str | None = None) -> str:
     """Build prompt for generating PR description."""
     if cwd is None:
         cwd = os.getcwd()
+
+    # Handle empty body gracefully
+    issue_content = f"### {title}"
+    if body and body.strip():
+        issue_content = f"{issue_content}\n\n{body}"
 
     return f"""You are writing a pull request description. Based on the issue and the git diff of changes made, write a clear PR description.
 
@@ -90,9 +107,7 @@ Do NOT include a test plan section.
 
 ## Original Issue
 
-### {title}
-
-{body}
+{issue_content}
 
 ## Changes Made (git diff)
 
